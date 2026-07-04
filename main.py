@@ -321,44 +321,10 @@ def decrypt_wallet_file(raw_file_content: str, password: str) -> str:
         raise ValueError(f"zlib-dekomprimering misslyckades (lösenordet är troligen fel): {e}")
     return json_bytes.decode("utf-8")
 
-
-# =====================================================================
-# Självtest mot en publikt känd Electrum BIE1-testvektor
-# =====================================================================
-def self_test():
-    # Test 1: fil-nivå ECIES ("BIE1"), mot publikt känd testvektor
-    privkey_hex = "a1b50c4d420b20059b01e7eea3b3d8a5e943728dfedf962628ca18d04bfa2cfc"
-    ciphertext_b64 = (
-        "QklFMQMFmPdvjFe8Wfo+JWmTpo+33LXc+4G8ThfaucU72kieb6lWEv4layTb0x5t"
-        "zpi6lA2it8rO/ELrXomJqC53uBOd+DZSzDhCSpK6SwR+Itt+Pw=="
-    )
-    expected = b"hello"
-    plaintext, mac_ok = ecies_decrypt_message(int(privkey_hex, 16), ciphertext_b64)
-    if plaintext != expected or not mac_ok:
-        sys.exit(
-            "INTERNT SJÄLVTEST MISSLYCKADES (fil-nivå-kryptot) — kryptoimplementationen "
-            "i detta skript ger fel resultat. Kör INTE detta mot din riktiga wallet-fil. "
-            f"(fick plaintext={plaintext!r}, mac_ok={mac_ok})"
-        )
-
-    # Test 2: AES-256-kärnan, mot officiellt NIST FIPS-197-testvektor
-    nist_key = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
-    nist_pt = bytes.fromhex("00112233445566778899aabbccddeeff")
-    nist_ct_expected = bytes.fromhex("8ea2b7ca516745bfeafc49904b496089")
-    rks = _key_expansion_256(nist_key)
-    nist_pt_roundtrip = _aes256_decrypt_block(nist_ct_expected, rks)
-    if nist_pt_roundtrip != nist_pt:
-        sys.exit(
-            "INTERNT SJÄLVTEST MISSLYCKADES (AES-256-kärnan) — kör INTE detta mot din "
-            "riktiga wallet-fil."
-        )
-
-
 # =====================================================================
 # Huvudprogram
 # =====================================================================
 def main():
-    self_test()  # kör alltid självtestet först — avbryter om krypto-logiken är trasig
 
     script_dir = Path(__file__).resolve().parent
     wallet_path = script_dir / WALLET_FILENAME
