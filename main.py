@@ -420,9 +420,6 @@ def main():
 
     raw_content = wallet_path.read_text(encoding="utf-8").strip()
 
-    print(f"Läser wallet-fil: {wallet_path}")
-    print("Försöker dekryptera med lösenordet från password.txt ...")
-
     try:
         decrypted_text = decrypt_wallet_file(raw_content, password)
     except Exception as e:
@@ -469,8 +466,7 @@ def main():
             except Exception:
                 seed_plain = raw_seed  # var troligen redan klartext
 
-            print(f"\n  \u001b[32mSeed-fras ({name}):")
-            print(f"    {seed_plain}")
+            print(f"\n\u001b[32m{seed_plain}")
 
             # Lägg till den dekrypterade seeden i data-strukturen, så den
             # även hamnar i output-JSON-filen (utöver terminalutskriften).
@@ -488,7 +484,6 @@ def main():
 
         if file_needs_rewrite:
             output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-            print(f"\n  \u001b[32m(Filen {output_path.name} har uppdaterats med dekrypterad(e) seed-fras(er).)")
 
             # Skapa dessutom en separat .txt-fil som bara innehåller seed-frasen/frasrna.
             seed_txt_path = _unique_path(output_dir, f"{wallet_stem}.seed.txt")
