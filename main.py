@@ -4,6 +4,7 @@ import hmac
 import json
 import sys
 import zlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 # =====================================================================
@@ -244,6 +245,25 @@ def self_test():
             f"(fick plaintext={plaintext!r}, mac_ok={mac_ok})"
         )
 
+def convert_timestamps(obj):
+    """
+    Går igenom JSON och konverterar Unix timestamps till ISO-datum.
+    Modifierar endast fält som heter 'creation_timestamp'.
+    """
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "creation_timestamp" and isinstance(v, (int, float)):
+                obj[k] = datetime.fromtimestamp(v, tz=timezone.utc).isoformat()
+            else:
+                obj[k] = convert_timestamps(v)
+        return obj
+
+    elif isinstance(obj, list):
+        return [convert_timestamps(i) for i in obj]
+
+    return obj
+
 # =====================================================================
 # Huvudprogram – ändrat för att hantera alla filer i "case"-mappen
 # =====================================================================
@@ -302,6 +322,10 @@ def main():
             # Försök tolka som JSON för att formatera snyggt
             try:
                 data = json.loads(decrypted_text)
+
+                # konvertera timestamps
+                data = convert_timestamps(data)
+
                 output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             except json.JSONDecodeError:
                 output_path.write_text(decrypted_text, encoding="utf-8")
