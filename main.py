@@ -248,10 +248,17 @@ def main():
         sys.exit(f"❌ Hittar ingen mapp '{CASE_DIR_NAME}' i: {script_dir}")
 
     # Läs lösenordet
+    # Läs alla lösenord
     if not password_path.exists():
         sys.exit(f"❌ Hittar ingen '{PASSWORD_FILENAME}' i: {script_dir}")
-    password = password_path.read_text(encoding="utf-8").rstrip("\n").rstrip("\r")
-    if not password:
+
+    passwords = [
+        line.strip()
+        for line in password_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    if not passwords:
         sys.exit(f"❌ '{PASSWORD_FILENAME}' verkar vara tom.")
 
     # Skapa output-mappen om den inte finns
@@ -283,7 +290,22 @@ def main():
 
         try:
             raw_content = wallet_path.read_text(encoding="utf-8").strip()
-            decrypted_text = decrypt_wallet_file(raw_content, password)
+
+            decrypted_text = None
+            used_password = None
+
+            for pwd in passwords:
+                try:
+                    decrypted_text = decrypt_wallet_file(raw_content, pwd)
+                    used_password = pwd
+                    break  # <-- STOPP när rätt lösenord hittas
+                except Exception:
+                    continue
+
+            if decrypted_text is None:
+                print(f"❌ {wallet_path.name}: inget lösenord fungerade")
+                error_count += 1
+                continue
 
             # Försök tolka som JSON för att formatera snyggt
             try:
@@ -305,6 +327,7 @@ def main():
 
     print("-" * 60)
     print(f"Klart! {success_count} fil(er) dekrypterades, {error_count} misslyckades.")
+    print(f"Rätt lösenord hittat för {wallet_path.name}: {used_password}")
 
 if __name__ == "__main__":
     main()
