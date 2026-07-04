@@ -263,10 +263,8 @@ def main():
     if not wallet_files:
         print(f"⚠️  Inga filer hittades i '{CASE_DIR_NAME}'.")
         return
-
-    print(f"✅ Självtest av kryptoimplementationen: OK")
-    print(f"📂 Hittade {len(wallet_files)} fil(er) i '{CASE_DIR_NAME}'.")
-    print(f"🔑 Använder lösenord från: {password_path}")
+    
+    print(f"Hittade {len(wallet_files)} fil(er) i '{CASE_DIR_NAME}'.")
     print("-" * 60)
 
     success_count = 0
@@ -306,10 +304,7 @@ def main():
             error_count += 1
 
     print("-" * 60)
-    print(f"📊 Klart! {success_count} fil(er) dekrypterades, {error_count} misslyckades.")
-    print(f"📁 Dekrypterade filer finns i: {output_dir}")
-    print("\n⚠️  Filerna i output-mappen innehåller känslig information i klartext.")
-    print("    Radera dem (och password.txt) säkert när du kopierat det du behöver.")
+    print(f"Klart! {success_count} fil(er) dekrypterades, {error_count} misslyckades.")
 
 if __name__ == "__main__":
     main()
