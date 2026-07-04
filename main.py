@@ -245,12 +245,12 @@ def main():
 
     # Kontrollera att case-mappen finns
     if not case_dir.exists() or not case_dir.is_dir():
-        sys.exit(f"❌ Hittar ingen mapp '{CASE_DIR_NAME}' i: {script_dir}")
+        sys.exit(f"\u001b[31m Hittar ingen mapp '{CASE_DIR_NAME}' in: {script_dir}")
 
     # Läs lösenordet
     # Läs alla lösenord
     if not password_path.exists():
-        sys.exit(f"❌ Hittar ingen '{PASSWORD_FILENAME}' i: {script_dir}")
+        sys.exit(f"\u001b[31m Hittar ingen '{PASSWORD_FILENAME}' in: {script_dir}")
 
     passwords = [
         line.strip()
@@ -259,7 +259,7 @@ def main():
     ]
 
     if not passwords:
-        sys.exit(f"❌ '{PASSWORD_FILENAME}' verkar vara tom.")
+        sys.exit(f"\u001b[31m '{PASSWORD_FILENAME}' is empty.")
 
     # Skapa output-mappen om den inte finns
     output_dir.mkdir(exist_ok=True)
@@ -268,10 +268,10 @@ def main():
     wallet_files = [f for f in case_dir.iterdir() if f.is_file()]
 
     if not wallet_files:
-        print(f"⚠️  Inga filer hittades i '{CASE_DIR_NAME}'.")
+        print(f"\u001b[33m No files found in '{CASE_DIR_NAME}'.")
         return
     
-    print(f"Hittade {len(wallet_files)} fil(er) i '{CASE_DIR_NAME}'.")
+    print(f"Found {len(wallet_files)} file(s) in '{CASE_DIR_NAME}'.")
     print("-" * 60)
 
     success_count = 0
@@ -303,7 +303,7 @@ def main():
                     continue
 
             if decrypted_text is None:
-                print(f"❌ {wallet_path.name}: inget lösenord fungerade")
+                print(f"\u001b[31m{wallet_path.name}: failed no valid password found")
                 error_count += 1
                 continue
 
@@ -318,16 +318,15 @@ def main():
             except json.JSONDecodeError:
                 output_path.write_text(decrypted_text, encoding="utf-8")
 
-            print(f"✅ {wallet_path.name} -> {output_path.name}")
             success_count += 1
 
         except Exception as e:
-            print(f"❌ {wallet_path.name}: misslyckades – {e}")
+            print(f"\u001b[31m{wallet_path.name}: failed – {e}")
             error_count += 1
 
-    print("-" * 60)
-    print(f"Klart! {success_count} fil(er) dekrypterades, {error_count} misslyckades.")
-    print(f"Rätt lösenord hittat för {wallet_path.name}: {used_password}")
+    print("\u001b[37m-" * 60)
+    print(f"\u001b[34mDone! {success_count} file(s) decrypted, \u001b[33m{error_count} failed.")
+    print(f"\u001b[34mPassword {wallet_path.name}: \u001b[32m{used_password}")
 
 if __name__ == "__main__":
     main()
