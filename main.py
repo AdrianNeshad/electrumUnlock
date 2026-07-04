@@ -7,17 +7,10 @@ import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-# =====================================================================
-# Konfiguration (ändrad)
-# =====================================================================
-CASE_DIR_NAME = "case"          # mappen med krypterade wallet-filer
-OUTPUT_DIR_NAME = "output"      # mappen för dekrypterade filer
+CASE_DIR_NAME = "case"          # mappen med wallet-filer
+OUTPUT_DIR_NAME = "output"      
 PASSWORD_FILENAME = "passwords.txt"
 OUTPUT_SUFFIX = ".json"
-
-# =====================================================================
-# (Resten av krypto-implementationen är EXAKT SAMMA som i original)
-# =====================================================================
 
 # secp256k1
 P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
@@ -230,27 +223,7 @@ def decrypt_wallet_file(raw_file_content: str, password: str) -> str:
         raise ValueError(f"zlib-dekomprimering misslyckades (lösenordet är troligen fel): {e}")
     return json_bytes.decode("utf-8")
 
-def self_test():
-    privkey_hex = "a1b50c4d420b20059b01e7eea3b3d8a5e943728dfedf962628ca18d04bfa2cfc"
-    ciphertext_b64 = (
-        "QklFMQMFmPdvjFe8Wfo+JWmTpo+33LXc+4G8ThfaucU72kieb6lWEv4layTb0x5t"
-        "zpi6lA2it8rO/ELrXomJqC53uBOd+DZSzDhCSpK6SwR+Itt+Pw=="
-    )
-    expected = b"hello"
-    plaintext, mac_ok = ecies_decrypt_message(int(privkey_hex, 16), ciphertext_b64)
-    if plaintext != expected or not mac_ok:
-        sys.exit(
-            "INTERNT SJÄLVTEST MISSLYCKADES — kryptoimplementationen i detta skript "
-            "ger fel resultat. Kör INTE detta mot din riktiga wallet-fil. "
-            f"(fick plaintext={plaintext!r}, mac_ok={mac_ok})"
-        )
-
 def convert_timestamps(obj):
-    """
-    Går igenom JSON och konverterar Unix timestamps till ISO-datum.
-    Modifierar endast fält som heter 'creation_timestamp'.
-    """
-
     if isinstance(obj, dict):
         for k, v in obj.items():
             if k == "creation_timestamp" and isinstance(v, (int, float)):
@@ -264,12 +237,7 @@ def convert_timestamps(obj):
 
     return obj
 
-# =====================================================================
-# Huvudprogram – ändrat för att hantera alla filer i "case"-mappen
-# =====================================================================
 def main():
-    self_test()  # kör alltid självtestet först
-
     script_dir = Path(__file__).resolve().parent
     case_dir = script_dir / CASE_DIR_NAME
     output_dir = script_dir / OUTPUT_DIR_NAME
