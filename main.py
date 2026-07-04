@@ -177,6 +177,75 @@ def _aes128_cbc_decrypt(ciphertext, key, iv):
         raise ValueError("Ogiltig PKCS7-padding efter dekryptering (fel lösenord?).")
     return out[:-pad]
 
+# AES-256
+
+_RCON256 = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d]
+ 
+ 
+def _key_expansion_256(key):
+    nk, nr = 8, 14
+    w = [list(key[4 * i:4 * i + 4]) for i in range(nk)]
+    for i in range(nk, 4 * (nr + 1)):
+        temp = list(w[i - 1])
+        if i % nk == 0:
+            temp = temp[1:] + temp[:1]
+            temp = [_SBOX[b] for b in temp]
+            temp[0] ^= _RCON256[i // nk - 1]
+        elif i % nk == 4:
+            temp = [_SBOX[b] for b in temp]
+        w.append([a ^ b for a, b in zip(w[i - nk], temp)])
+    round_keys = []
+    for r in range(nr + 1):
+        rk = w[4 * r:4 * r + 4]
+        round_keys.append([b for col in rk for b in col])
+    return round_keys
+ 
+ 
+def _aes256_decrypt_block(block, round_keys):
+    nr = 14
+    state = list(block)
+    state = _add_round_key(state, round_keys[nr])
+    for rnd in range(nr - 1, 0, -1):
+        state = _inv_shift_rows(state)
+        state = _inv_sub_bytes(state)
+        state = _add_round_key(state, round_keys[rnd])
+        state = _inv_mix_columns(state)
+    state = _inv_shift_rows(state)
+    state = _inv_sub_bytes(state)
+    state = _add_round_key(state, round_keys[0])
+    return bytes(state)
+ 
+ 
+def _aes256_cbc_decrypt(ciphertext, key, iv):
+    if len(ciphertext) % 16 != 0 or len(ciphertext) == 0:
+        raise ValueError("Ogiltig ciphertext-längd (inte multipel av 16).")
+    round_keys = _key_expansion_256(key)
+    out = b""
+    prev = iv
+    for i in range(0, len(ciphertext), 16):
+        block = ciphertext[i:i + 16]
+        dec = _aes256_decrypt_block(block, round_keys)
+        plain_block = bytes(a ^ b for a, b in zip(dec, prev))
+        out += plain_block
+        prev = block
+    pad = out[-1]
+    if pad < 1 or pad > 16 or pad > len(out):
+        raise ValueError("Ogiltig PKCS7-padding (fel lösenord, eller fältet var inte krypterat).")
+    return out[:-pad]
+ 
+ 
+def pw_decode(encoded_str: str, password: str) -> str:
+    """Dekrypterar Electrums inre fält-nivå-kryptering (t.ex. keystore['seed']).
+    Nyckel = dubbel SHA-256 av lösenordet. Format: base64(iv[16] + AES-256-CBC-ciphertext)."""
+    secret = hashlib.sha256(hashlib.sha256(password.encode("utf-8")).digest()).digest()
+    raw = base64.b64decode(encoded_str)
+    if len(raw) < 32:
+        raise ValueError("För kort data för att vara ett pw_encode-krypterat fält.")
+    iv, ciphertext = raw[:16], raw[16:]
+    plaintext = _aes256_cbc_decrypt(ciphertext, secret, iv)
+    return plaintext.decode("utf-8")
+ 
+
 # Electrum-specifik logik
 def get_eckey_from_password(password: str) -> int:
     secret = hashlib.pbkdf2_hmac("sha512", password.encode("utf-8"), b"", iterations=1024)
