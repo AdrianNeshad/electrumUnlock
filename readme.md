@@ -21,10 +21,10 @@ ANVÄNDNING:
    (ändra WALLET_FILENAME nedan om den heter något annat).
 3. Skapa en fil "passwords.txt" i samma mapp med bara lösenordet i
    (ingen extra radbrytning/mellanslag).
-4. Kör: python3 decrypt_wallet_standalone.py
+4. Kör: python3 main.py
    (kräver bara en vanlig Python 3-installation, inget mer)
 
-Resultatet sparas som "default_wallet.decrypted.json" i samma mapp.
+Resultatet sparas som "default_wallet.json" i mappen "output".
 
 SÄKERHET:
 - Skriptet gör inga nätverksanrop och har inga externa beroenden.
