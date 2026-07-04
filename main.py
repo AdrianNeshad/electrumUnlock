@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WALLET_FILENAME = "default_wallet"
-PASSWORD_FILENAME = "password.txt"
+PASSWORD_FILENAME = "passwords.txt"
 OUTPUT_SUFFIX = ".decrypted.json"
 OUTPUT_DIRNAME = "output"
+CASE_DIRNAME = "case"
 
 # =====================================================================
 # secp256k1 - kurvparametrar (offentlig standard, samma kurva som Bitcoin)
@@ -340,6 +341,29 @@ def _format_timestamp(value):
 
 
 # =====================================================================
+# Hjälpfunktion: hitta wallet-filen i "case"-mappen. Det ska bara finnas
+# två filer där: password.txt och wallet-filen (oavsett vad den heter).
+# =====================================================================
+def _find_wallet_file(case_dir: Path) -> Path:
+    candidates = [
+        p for p in sorted(case_dir.iterdir())
+        if p.is_file() and p.name != PASSWORD_FILENAME and not p.name.startswith(".")
+    ]
+    if not candidates:
+        sys.exit(
+            f"Hittar ingen wallet-fil i mappen: {case_dir}\n"
+            f"Lägg wallet-filen (valfritt namn) och '{PASSWORD_FILENAME}' där."
+        )
+    if len(candidates) > 1:
+        names = ", ".join(p.name for p in candidates)
+        sys.exit(
+            f"Hittade flera filer i '{case_dir}' förutom '{PASSWORD_FILENAME}': {names}\n"
+            f"Se till att mappen bara innehåller password.txt och en wallet-fil."
+        )
+    return candidates[0]
+
+
+# =====================================================================
 # Hjälpfunktion: gå igenom hela JSON-strukturen (rekursivt) och lägg till
 # en läsbar variant bredvid varje nyckel som slutar på "_timestamp",
 # oavsett hur djupt ner i strukturen den ligger (t.ex. inuti en keystore).
@@ -392,18 +416,20 @@ def _unique_path(directory: Path, filename: str) -> Path:
 def main():
 
     script_dir = Path(__file__).resolve().parent
-    wallet_path = script_dir / WALLET_FILENAME
-    password_path = script_dir / PASSWORD_FILENAME
+    case_dir = script_dir / CASE_DIRNAME
+    if not case_dir.exists():
+        sys.exit(f"Hittar ingen mapp som heter '{CASE_DIRNAME}' i: {script_dir}")
+
+    password_path = case_dir / PASSWORD_FILENAME
+    if not password_path.exists():
+        sys.exit(f"Hittar ingen '{PASSWORD_FILENAME}' i: {case_dir}")
+
+    wallet_path = _find_wallet_file(case_dir)
+    wallet_stem = wallet_path.stem if wallet_path.suffix else wallet_path.name
 
     output_dir = script_dir / OUTPUT_DIRNAME
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = _unique_path(output_dir, f"{WALLET_FILENAME}{OUTPUT_SUFFIX}")
-
-    if not wallet_path.exists():
-        sys.exit(f"Hittar ingen wallet-fil på: {wallet_path}\n"
-                  f"Lägg din fil i samma mapp och döp den till '{WALLET_FILENAME}'.")
-    if not password_path.exists():
-        sys.exit(f"Hittar ingen '{PASSWORD_FILENAME}' i: {script_dir}")
+    output_path = _unique_path(output_dir, f"{wallet_stem}{OUTPUT_SUFFIX}")
 
     password = password_path.read_text(encoding="utf-8").rstrip("\n").rstrip("\r")
     if not password:
@@ -489,7 +515,7 @@ def main():
             print(f"\n  (Filen {output_path.name} har uppdaterats med dekrypterad(e) seed-fras(er).)")
 
             # Skapa dessutom en separat .txt-fil som bara innehåller seed-frasen/frasrna.
-            seed_txt_path = _unique_path(output_dir, f"{WALLET_FILENAME}.seed.txt")
+            seed_txt_path = _unique_path(output_dir, f"{wallet_stem}.seed.txt")
             lines = []
             for name, ks in keystores:
                 seed_plain = ks.get("seed_decrypted")
