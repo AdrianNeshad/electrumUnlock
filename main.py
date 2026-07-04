@@ -9,7 +9,7 @@ from pathlib import Path
 
 WALLET_FILENAME = "default_wallet"
 PASSWORD_FILENAME = "passwords.txt"
-OUTPUT_SUFFIX = ".decrypted.json"
+OUTPUT_SUFFIX = ".info.json"
 OUTPUT_DIRNAME = "output"
 CASE_DIRNAME = "case"
 
@@ -467,6 +467,7 @@ def main():
                 seed_plain = raw_seed  # var troligen redan klartext
 
             print(f"\n\u001b[32m{seed_plain}")
+            print(f"\n\u001b[37mPassword: \u001b[34m{password}")
 
             # Lägg till den dekrypterade seeden i data-strukturen, så den
             # även hamnar i output-JSON-filen (utöver terminalutskriften).
@@ -479,7 +480,7 @@ def main():
                     passphrase_plain = pw_decode(raw_passphrase, password)
                 except Exception:
                     passphrase_plain = raw_passphrase
-                print(f"    \u001b[33m(obs: seeden har även en extra passphrase satt: {passphrase_plain})")
+                print(f"\u001b[33m(obs: seeden har även en extra passphrase satt: {passphrase_plain})")
                 ks["passphrase_decrypted"] = passphrase_plain
 
         if file_needs_rewrite:
