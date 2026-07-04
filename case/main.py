@@ -20,7 +20,7 @@ ANVÄNDNING:
 1. Lägg denna fil i en egen mapp.
 2. Lägg din krypterade wallet-fil i SAMMA mapp, döpt till "default_wallet"
    (ändra WALLET_FILENAME nedan om den heter något annat).
-3. Skapa en fil "password.txt" i samma mapp med bara lösenordet i
+3. Skapa en fil "passwords.txt" i samma mapp med bara lösenordet i
    (ingen extra radbrytning/mellanslag).
 4. Kör: python3 decrypt_wallet_standalone.py
    (kräver bara en vanlig Python 3-installation, inget mer)
