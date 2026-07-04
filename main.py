@@ -324,10 +324,6 @@ def decrypt_wallet_file(raw_file_content: str, password: str) -> str:
         raise ValueError(f"zlib-dekomprimering misslyckades (lösenordet är troligen fel): {e}")
     return json_bytes.decode("utf-8")
 
-
-# =====================================================================
-# Hjälpfunktion: gör om unix-timestamp (sekunder) till läsbar text.
-# =====================================================================
 def _format_timestamp(value):
     try:
         ts = int(value)
@@ -358,16 +354,10 @@ def _find_wallet_file(case_dir: Path) -> Path:
         names = ", ".join(p.name for p in candidates)
         sys.exit(
             f"Hittade flera filer i '{case_dir}' förutom '{PASSWORD_FILENAME}': {names}\n"
-            f"Se till att mappen bara innehåller password.txt och en wallet-fil."
+            f"Se till att mappen bara innehåller passwords.txt och en wallet-fil."
         )
     return candidates[0]
 
-
-# =====================================================================
-# Hjälpfunktion: gå igenom hela JSON-strukturen (rekursivt) och lägg till
-# en läsbar variant bredvid varje nyckel som slutar på "_timestamp",
-# oavsett hur djupt ner i strukturen den ligger (t.ex. inuti en keystore).
-# =====================================================================
 def _add_readable_timestamps(obj):
     if isinstance(obj, dict):
         for key in list(obj.keys()):
@@ -381,18 +371,11 @@ def _add_readable_timestamps(obj):
         for item in obj:
             _add_readable_timestamps(item)
 
-
-# =====================================================================
-# Hjälpfunktion: undvik att skriva över befintliga filer i output-mappen.
-# Om "namn.ext" redan finns provas "namn (1).ext", "namn (2).ext" osv.
-# =====================================================================
 def _unique_path(directory: Path, filename: str) -> Path:
     candidate = directory / filename
     if not candidate.exists():
         return candidate
 
-    # Dela upp filnamnet i "bas" + "ändelse", där ändelsen kan bestå av
-    # flera suffix (t.ex. ".decrypted.json" eller ".seed.txt").
     stem = filename
     suffix = ""
     while True:
@@ -437,21 +420,17 @@ def main():
 
     raw_content = wallet_path.read_text(encoding="utf-8").strip()
 
-    print("Självtest av kryptoimplementationen: OK")
     print(f"Läser wallet-fil: {wallet_path}")
     print("Försöker dekryptera med lösenordet från password.txt ...")
 
     try:
         decrypted_text = decrypt_wallet_file(raw_content, password)
     except Exception as e:
-        sys.exit(f"Dekryptering misslyckades: {e}")
+        sys.exit(f"\u001b[31mDekryptering misslyckades: {e}")
 
     try:
         data = json.loads(decrypted_text)
 
-        # Gör om eventuella unix-timestamps till läsbara datum.
-        # Nyckeln heter t.ex. "creation_timestamp" i Electrum-filer, men den
-        # kan ligga nästlad (t.ex. inuti en keystore), så vi söker rekursivt.
         _add_readable_timestamps(data)
 
         output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -459,12 +438,9 @@ def main():
         output_path.write_text(decrypted_text, encoding="utf-8")
         data = None
 
-    print(f"\n✅ Klart! Dekrypterat innehåll sparat till:\n   {output_path}\n")
-
     if data is not None:
-        print("Kort sammanfattning:")
-        print(f"  wallet_type:  {data.get('wallet_type', 'okänd')}")
-        print(f"  seed_version: {data.get('seed_version', 'okänd')}")
+        print(f"  \u001b[33mwallet_type:  {data.get('wallet_type', 'okänd')}")
+        print(f"  \u001b[33mseed_version: {data.get('seed_version', 'okänd')}")
 
         # Samla ihop alla keystores. Vanliga plånböcker har ett fält "keystore",
         # multisig-plånböcker har flera under "x1/", "x2/", "x3/" osv.
@@ -476,13 +452,13 @@ def main():
                 keystores.append((k, v))
 
         if not keystores:
-            print("  Ingen keystore hittades i filen (kan vara en watching-only-plånbok).")
+            print("  \u001b[33mIngen keystore hittades i filen (kan vara en watching-only-plånbok).")
 
         file_needs_rewrite = False
         for name, ks in keystores:
             raw_seed = ks.get("seed")
             if not raw_seed:
-                print(f"  {name}: ingen seed-fras (t.ex. importerade nycklar eller hårdvaruplånbok)")
+                print(f"  \u001b[33m{name}: ingen seed-fras (t.ex. importerade nycklar eller hårdvaruplånbok)")
                 continue
 
             # Seed-fältet är i sig krypterat separat (pw_encode/pw_decode-lagret).
@@ -493,7 +469,7 @@ def main():
             except Exception:
                 seed_plain = raw_seed  # var troligen redan klartext
 
-            print(f"\n  Seed-fras ({name}):")
+            print(f"\n  \u001b[32mSeed-fras ({name}):")
             print(f"    {seed_plain}")
 
             # Lägg till den dekrypterade seeden i data-strukturen, så den
@@ -507,12 +483,12 @@ def main():
                     passphrase_plain = pw_decode(raw_passphrase, password)
                 except Exception:
                     passphrase_plain = raw_passphrase
-                print(f"    (obs: seeden har även en extra passphrase satt: {passphrase_plain})")
+                print(f"    \u001b[33m(obs: seeden har även en extra passphrase satt: {passphrase_plain})")
                 ks["passphrase_decrypted"] = passphrase_plain
 
         if file_needs_rewrite:
             output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-            print(f"\n  (Filen {output_path.name} har uppdaterats med dekrypterad(e) seed-fras(er).)")
+            print(f"\n  \u001b[32m(Filen {output_path.name} har uppdaterats med dekrypterad(e) seed-fras(er).)")
 
             # Skapa dessutom en separat .txt-fil som bara innehåller seed-frasen/frasrna.
             seed_txt_path = _unique_path(output_dir, f"{wallet_stem}.seed.txt")
@@ -525,10 +501,6 @@ def main():
                 if pass_plain:
                     lines.append(f"passphrase ({name}): {pass_plain}")
             seed_txt_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            print(f"  Seed-frasen har även sparats separat i klartext till:\n    {seed_txt_path}")
-
-    print("\n⚠️  Filerna ovan innehåller känslig information i klartext.")
-    print("    Radera dem (och password.txt) säkert när du kopierat det du behöver.")
 
 
 if __name__ == "__main__":
