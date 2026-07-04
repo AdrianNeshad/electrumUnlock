@@ -387,7 +387,7 @@ def _unique_path(directory: Path, filename: str) -> Path:
 
     counter = 1
     while True:
-        candidate = directory / f"{stem} ({counter}){suffix}"
+        candidate = directory / f"{stem}-{counter}{suffix}"
         if not candidate.exists():
             return candidate
         counter += 1
@@ -436,8 +436,8 @@ def main():
         data = None
 
     if data is not None:
-        print(f"  \u001b[33mwallet_type:  {data.get('wallet_type', 'okänd')}")
-        print(f"  \u001b[33mseed_version: {data.get('seed_version', 'okänd')}")
+        print(f"\u001b[33mwallet_type:  {data.get('wallet_type', 'okänd')}")
+        print(f"\u001b[33mseed_version: {data.get('seed_version', 'okänd')}")
 
         # Samla ihop alla keystores. Vanliga plånböcker har ett fält "keystore",
         # multisig-plånböcker har flera under "x1/", "x2/", "x3/" osv.
@@ -449,13 +449,13 @@ def main():
                 keystores.append((k, v))
 
         if not keystores:
-            print("  \u001b[33mIngen keystore hittades i filen (kan vara en watching-only-plånbok).")
+            print("\u001b[33mIngen keystore hittades i filen (kan vara en watching-only-plånbok).")
 
         file_needs_rewrite = False
         for name, ks in keystores:
             raw_seed = ks.get("seed")
             if not raw_seed:
-                print(f"  \u001b[33m{name}: ingen seed-fras (t.ex. importerade nycklar eller hårdvaruplånbok)")
+                print(f"\u001b[33m{name}: ingen seed-fras (t.ex. importerade nycklar eller hårdvaruplånbok)")
                 continue
 
             # Seed-fältet är i sig krypterat separat (pw_encode/pw_decode-lagret).
@@ -467,7 +467,7 @@ def main():
                 seed_plain = raw_seed  # var troligen redan klartext
 
             print(f"\n\u001b[32m{seed_plain}")
-            print(f"\n\u001b[37mPassword: \u001b[34m{password}")
+            print(f"\n\u001b[34mPassword: \u001b[32m{password}")
 
             # Lägg till den dekrypterade seeden i data-strukturen, så den
             # även hamnar i output-JSON-filen (utöver terminalutskriften).
