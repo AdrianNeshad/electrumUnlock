@@ -9,6 +9,7 @@ from pathlib import Path
 WALLET_FILENAME = "default_wallet"
 PASSWORD_FILENAME = "password.txt"
 OUTPUT_SUFFIX = ".decrypted.json"
+OUTPUT_DIRNAME = "output"
 
 # =====================================================================
 # secp256k1 - kurvparametrar (offentlig standard, samma kurva som Bitcoin)
@@ -321,6 +322,35 @@ def decrypt_wallet_file(raw_file_content: str, password: str) -> str:
         raise ValueError(f"zlib-dekomprimering misslyckades (lösenordet är troligen fel): {e}")
     return json_bytes.decode("utf-8")
 
+
+# =====================================================================
+# Hjälpfunktion: undvik att skriva över befintliga filer i output-mappen.
+# Om "namn.ext" redan finns provas "namn (1).ext", "namn (2).ext" osv.
+# =====================================================================
+def _unique_path(directory: Path, filename: str) -> Path:
+    candidate = directory / filename
+    if not candidate.exists():
+        return candidate
+
+    # Dela upp filnamnet i "bas" + "ändelse", där ändelsen kan bestå av
+    # flera suffix (t.ex. ".decrypted.json" eller ".seed.txt").
+    stem = filename
+    suffix = ""
+    while True:
+        p = Path(stem)
+        if p.suffix == "":
+            break
+        stem = p.stem
+        suffix = p.suffix + suffix
+
+    counter = 1
+    while True:
+        candidate = directory / f"{stem} ({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 # =====================================================================
 # Huvudprogram
 # =====================================================================
@@ -329,7 +359,10 @@ def main():
     script_dir = Path(__file__).resolve().parent
     wallet_path = script_dir / WALLET_FILENAME
     password_path = script_dir / PASSWORD_FILENAME
-    output_path = script_dir / f"{WALLET_FILENAME}{OUTPUT_SUFFIX}"
+
+    output_dir = script_dir / OUTPUT_DIRNAME
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = _unique_path(output_dir, f"{WALLET_FILENAME}{OUTPUT_SUFFIX}")
 
     if not wallet_path.exists():
         sys.exit(f"Hittar ingen wallet-fil på: {wallet_path}\n"
@@ -415,7 +448,7 @@ def main():
             print(f"\n  (Filen {output_path.name} har uppdaterats med dekrypterad(e) seed-fras(er).)")
 
             # Skapa dessutom en separat .txt-fil som bara innehåller seed-frasen/frasrna.
-            seed_txt_path = script_dir / f"{WALLET_FILENAME}.seed.txt"
+            seed_txt_path = _unique_path(output_dir, f"{WALLET_FILENAME}.seed.txt")
             lines = []
             for name, ks in keystores:
                 seed_plain = ks.get("seed_decrypted")
@@ -427,8 +460,8 @@ def main():
             seed_txt_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             print(f"  Seed-frasen har även sparats separat i klartext till:\n    {seed_txt_path}")
 
-    print("\n⚠️  Filen ovan innehåller känslig information i klartext.")
-    print("    Radera den (och password.txt) säkert när du kopierat det du behöver.")
+    print("\n⚠️  Filerna ovan innehåller känslig information i klartext.")
+    print("    Radera dem (och password.txt) säkert när du kopierat det du behöver.")
 
 
 if __name__ == "__main__":
