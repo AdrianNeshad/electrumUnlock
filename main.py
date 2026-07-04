@@ -1,26 +1,74 @@
+#!/usr/bin/env python3
+"""
+decrypt_wallet_standalone.py
+-----------------------------
+Dekrypterar en Electrum-plånboksfil (whole-file encryption, "BIE1"-format)
+HELT OFFLINE och UTAN externa pip-beroenden. Allt som behövs finns i
+Pythons standardbibliotek (hashlib, hmac, zlib, base64, json).
+
+Detta skript implementerar från grunden:
+  - secp256k1-kurvans punktaritmetik (för Diffie-Hellman-nyckelutbyte)
+  - AES-128 i CBC-läge (för fil-nivå-dekrypteringen, "BIE1")
+  - AES-256 i CBC-läge (för det INRE lagret som skyddar seed/xprv i keystore)
+  - Samma nyckelhärledning som Electrum använder på fil-nivå: lösenord ->
+    PBKDF2-HMAC-SHA512 (1024 iterationer, tomt salt) -> privat EC-nyckel
+  - Samma nyckelhärledning som Electrum använder för det inre lagret:
+    dubbel SHA-256 av lösenordet -> AES-256-nyckel
+
+OBS: Electrum har två separata krypteringslager. Filen som helhet krypteras
+med ECIES (ovan), men fält som "seed" och privata huvudnycklar (xprv) INUTI
+keystore är dessutom krypterade separat med samma lösenord, via en enklare
+AES-256-CBC-metod. Om du bara dekrypterar fil-lagret ser fältet "seed" ut
+som en slumpmässig base64-sträng — det är förväntat. Det här skriptet
+dekrypterar båda lagren automatiskt.
+
+Algoritmen är verifierad mot en publikt känd testvektor för Electrums
+"BIE1"-ECIES-format (se self_test() nedan), så du kan själv kontrollera
+att implementationen är korrekt innan du kör den mot din riktiga fil.
+
+ANVÄNDNING:
+1. Lägg denna fil i en egen mapp.
+2. Lägg din krypterade wallet-fil i SAMMA mapp, döpt till "default_wallet"
+   (ändra WALLET_FILENAME nedan om den heter något annat).
+3. Skapa en fil "password.txt" i samma mapp med bara lösenordet i
+   (ingen extra radbrytning/mellanslag).
+4. Kör: python3 decrypt_wallet_standalone.py
+   (kräver bara en vanlig Python 3-installation, inget mer)
+
+Resultatet sparas som "default_wallet.decrypted.json" i samma mapp.
+
+SÄKERHET:
+- Skriptet gör inga nätverksanrop och har inga externa beroenden.
+- Kör det gärna på en offline-maskin, eftersom den dekrypterade filen
+  innehåller din seed/privata nycklar i klartext.
+- Radera den dekrypterade filen och password.txt säkert när du är klar.
+"""
+
 import base64
 import hashlib
 import hmac
 import json
 import sys
 import zlib
-from datetime import datetime, timezone
 from pathlib import Path
 
-CASE_DIR_NAME = "case"          # mappen med wallet-filer
-OUTPUT_DIR_NAME = "output"      
-PASSWORD_FILENAME = "passwords.txt"
-OUTPUT_SUFFIX = ".json"
+WALLET_FILENAME = "default_wallet"
+PASSWORD_FILENAME = "password.txt"
+OUTPUT_SUFFIX = ".decrypted.json"
 
-# secp256k1
+# =====================================================================
+# secp256k1 - kurvparametrar (offentlig standard, samma kurva som Bitcoin)
+# =====================================================================
 P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
 N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
 Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 G = (Gx, Gy)
 
+
 def _inv(a, m):
     return pow(a, m - 2, m)
+
 
 def _point_add(p1, p2):
     if p1 is None:
@@ -39,6 +87,7 @@ def _point_add(p1, p2):
     y3 = (lam * (x1 - x3) - y1) % P
     return (x3, y3)
 
+
 def _scalar_mult(k, point):
     result = None
     addend = point
@@ -49,8 +98,10 @@ def _scalar_mult(k, point):
         k >>= 1
     return result
 
+
 def _privkey_to_pubkey(d):
     return _scalar_mult(d, G)
+
 
 def _decompress_pubkey(data):
     prefix = data[0]
@@ -61,12 +112,16 @@ def _decompress_pubkey(data):
         y = P - y
     return (x, y)
 
+
 def _compress_pubkey(point):
     x, y = point
     prefix = 2 if y % 2 == 0 else 3
     return bytes([prefix]) + x.to_bytes(32, "big")
 
-# AES-128
+
+# =====================================================================
+# AES-128 (dekryptering), ren Python, enligt NIST FIPS-197
+# =====================================================================
 _SBOX = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -90,6 +145,7 @@ for _i, _v in enumerate(_SBOX):
     _INV_SBOX[_v] = _i
 _RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
 
+
 def _key_expansion(key):
     nk, nr = 4, 10
     w = [list(key[4 * i:4 * i + 4]) for i in range(nk)]
@@ -106,11 +162,13 @@ def _key_expansion(key):
         round_keys.append([b for col in rk for b in col])
     return round_keys
 
+
 def _xtime(a):
     a <<= 1
     if a & 0x100:
         a ^= 0x11b
     return a & 0xff
+
 
 def _gmul(a, b):
     p = 0
@@ -121,11 +179,14 @@ def _gmul(a, b):
         b >>= 1
     return p & 0xff
 
+
 def _add_round_key(state, rk):
     return [s ^ k for s, k in zip(state, rk)]
 
+
 def _inv_sub_bytes(state):
     return [_INV_SBOX[b] for b in state]
+
 
 def _inv_shift_rows(state):
     s = state[:]
@@ -137,6 +198,7 @@ def _inv_shift_rows(state):
             out[c * 4 + r] = row[c]
     return out
 
+
 def _inv_mix_columns(state):
     out = [0] * 16
     for c in range(4):
@@ -146,6 +208,7 @@ def _inv_mix_columns(state):
         out[c * 4 + 2] = _gmul(a[0], 13) ^ _gmul(a[1], 9) ^ _gmul(a[2], 14) ^ _gmul(a[3], 11)
         out[c * 4 + 3] = _gmul(a[0], 11) ^ _gmul(a[1], 13) ^ _gmul(a[2], 9) ^ _gmul(a[3], 14)
     return out
+
 
 def _aes128_decrypt_block(block, round_keys):
     state = list(block)
@@ -159,6 +222,7 @@ def _aes128_decrypt_block(block, round_keys):
     state = _inv_sub_bytes(state)
     state = _add_round_key(state, round_keys[0])
     return bytes(state)
+
 
 def _aes128_cbc_decrypt(ciphertext, key, iv):
     if len(ciphertext) % 16 != 0 or len(ciphertext) == 0:
@@ -177,11 +241,14 @@ def _aes128_cbc_decrypt(ciphertext, key, iv):
         raise ValueError("Ogiltig PKCS7-padding efter dekryptering (fel lösenord?).")
     return out[:-pad]
 
-# AES-256
 
+# =====================================================================
+# AES-256 (dekryptering), ren Python, enligt NIST FIPS-197
+# Används för det INRE lagret som skyddar seed/xprv i keystore.
+# =====================================================================
 _RCON256 = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d]
- 
- 
+
+
 def _key_expansion_256(key):
     nk, nr = 8, 14
     w = [list(key[4 * i:4 * i + 4]) for i in range(nk)]
@@ -199,8 +266,8 @@ def _key_expansion_256(key):
         rk = w[4 * r:4 * r + 4]
         round_keys.append([b for col in rk for b in col])
     return round_keys
- 
- 
+
+
 def _aes256_decrypt_block(block, round_keys):
     nr = 14
     state = list(block)
@@ -214,8 +281,8 @@ def _aes256_decrypt_block(block, round_keys):
     state = _inv_sub_bytes(state)
     state = _add_round_key(state, round_keys[0])
     return bytes(state)
- 
- 
+
+
 def _aes256_cbc_decrypt(ciphertext, key, iv):
     if len(ciphertext) % 16 != 0 or len(ciphertext) == 0:
         raise ValueError("Ogiltig ciphertext-längd (inte multipel av 16).")
@@ -232,8 +299,8 @@ def _aes256_cbc_decrypt(ciphertext, key, iv):
     if pad < 1 or pad > 16 or pad > len(out):
         raise ValueError("Ogiltig PKCS7-padding (fel lösenord, eller fältet var inte krypterat).")
     return out[:-pad]
- 
- 
+
+
 def pw_decode(encoded_str: str, password: str) -> str:
     """Dekrypterar Electrums inre fält-nivå-kryptering (t.ex. keystore['seed']).
     Nyckel = dubbel SHA-256 av lösenordet. Format: base64(iv[16] + AES-256-CBC-ciphertext)."""
@@ -244,15 +311,21 @@ def pw_decode(encoded_str: str, password: str) -> str:
     iv, ciphertext = raw[:16], raw[16:]
     plaintext = _aes256_cbc_decrypt(ciphertext, secret, iv)
     return plaintext.decode("utf-8")
- 
 
+
+# =====================================================================
 # Electrum-specifik logik
+# =====================================================================
 def get_eckey_from_password(password: str) -> int:
+    """Samma härledning som Electrum använder: PBKDF2-HMAC-SHA512,
+    1024 iterationer, tomt salt -> reducera modulo kurvans ordning."""
     secret = hashlib.pbkdf2_hmac("sha512", password.encode("utf-8"), b"", iterations=1024)
     d = int.from_bytes(secret, "big") % N
     return d
 
+
 def ecies_decrypt_message(privkey_int: int, encrypted_b64: str, magic: bytes = b"BIE1"):
+    """Dekrypterar Electrums 'BIE1'-ECIES-format. Returnerar (plaintext, mac_ok)."""
     raw = base64.b64decode(encrypted_b64)
     if raw[:4] != magic:
         raise ValueError(f"Fel magic bytes: förväntade {magic!r}, fick {raw[:4]!r}")
@@ -272,7 +345,9 @@ def ecies_decrypt_message(privkey_int: int, encrypted_b64: str, magic: bytes = b
     plaintext = _aes128_cbc_decrypt(ciphertext, key_e, iv)
     return plaintext, mac_ok
 
+
 def decrypt_wallet_file(raw_file_content: str, password: str) -> str:
+    """Tar den råa (base64) filinnehållet + lösenord, returnerar dekrypterad JSON-text."""
     magic = base64.b64decode(raw_file_content)[:4]
     if magic == b"BIE2":
         raise ValueError(
@@ -292,110 +367,149 @@ def decrypt_wallet_file(raw_file_content: str, password: str) -> str:
         raise ValueError(f"zlib-dekomprimering misslyckades (lösenordet är troligen fel): {e}")
     return json_bytes.decode("utf-8")
 
-def convert_timestamps(obj):
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if k == "creation_timestamp" and isinstance(v, (int, float)):
-                obj[k] = datetime.fromtimestamp(v, tz=timezone.utc).isoformat()
-            else:
-                obj[k] = convert_timestamps(v)
-        return obj
 
-    elif isinstance(obj, list):
-        return [convert_timestamps(i) for i in obj]
+# =====================================================================
+# Självtest mot en publikt känd Electrum BIE1-testvektor
+# =====================================================================
+def self_test():
+    # Test 1: fil-nivå ECIES ("BIE1"), mot publikt känd testvektor
+    privkey_hex = "a1b50c4d420b20059b01e7eea3b3d8a5e943728dfedf962628ca18d04bfa2cfc"
+    ciphertext_b64 = (
+        "QklFMQMFmPdvjFe8Wfo+JWmTpo+33LXc+4G8ThfaucU72kieb6lWEv4layTb0x5t"
+        "zpi6lA2it8rO/ELrXomJqC53uBOd+DZSzDhCSpK6SwR+Itt+Pw=="
+    )
+    expected = b"hello"
+    plaintext, mac_ok = ecies_decrypt_message(int(privkey_hex, 16), ciphertext_b64)
+    if plaintext != expected or not mac_ok:
+        sys.exit(
+            "INTERNT SJÄLVTEST MISSLYCKADES (fil-nivå-kryptot) — kryptoimplementationen "
+            "i detta skript ger fel resultat. Kör INTE detta mot din riktiga wallet-fil. "
+            f"(fick plaintext={plaintext!r}, mac_ok={mac_ok})"
+        )
 
-    return obj
+    # Test 2: AES-256-kärnan, mot officiellt NIST FIPS-197-testvektor
+    nist_key = bytes.fromhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+    nist_pt = bytes.fromhex("00112233445566778899aabbccddeeff")
+    nist_ct_expected = bytes.fromhex("8ea2b7ca516745bfeafc49904b496089")
+    rks = _key_expansion_256(nist_key)
+    nist_pt_roundtrip = _aes256_decrypt_block(nist_ct_expected, rks)
+    if nist_pt_roundtrip != nist_pt:
+        sys.exit(
+            "INTERNT SJÄLVTEST MISSLYCKADES (AES-256-kärnan) — kör INTE detta mot din "
+            "riktiga wallet-fil."
+        )
 
+
+# =====================================================================
+# Huvudprogram
+# =====================================================================
 def main():
+    self_test()  # kör alltid självtestet först — avbryter om krypto-logiken är trasig
+
     script_dir = Path(__file__).resolve().parent
-    case_dir = script_dir / CASE_DIR_NAME
-    output_dir = script_dir / OUTPUT_DIR_NAME
+    wallet_path = script_dir / WALLET_FILENAME
     password_path = script_dir / PASSWORD_FILENAME
+    output_path = script_dir / f"{WALLET_FILENAME}{OUTPUT_SUFFIX}"
 
-    # Kontrollera att case-mappen finns
-    if not case_dir.exists() or not case_dir.is_dir():
-        sys.exit(f"\u001b[31m Hittar ingen mapp '{CASE_DIR_NAME}' in: {script_dir}")
-
-    # Läs lösenordet
-    # Läs alla lösenord
+    if not wallet_path.exists():
+        sys.exit(f"Hittar ingen wallet-fil på: {wallet_path}\n"
+                  f"Lägg din fil i samma mapp och döp den till '{WALLET_FILENAME}'.")
     if not password_path.exists():
-        sys.exit(f"\u001b[31m Hittar ingen '{PASSWORD_FILENAME}' in: {script_dir}")
+        sys.exit(f"Hittar ingen '{PASSWORD_FILENAME}' i: {script_dir}")
 
-    passwords = [
-        line.strip()
-        for line in password_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    password = password_path.read_text(encoding="utf-8").rstrip("\n").rstrip("\r")
+    if not password:
+        sys.exit(f"'{PASSWORD_FILENAME}' verkar vara tom.")
 
-    if not passwords:
-        sys.exit(f"\u001b[31m '{PASSWORD_FILENAME}' is empty.")
+    raw_content = wallet_path.read_text(encoding="utf-8").strip()
 
-    # Skapa output-mappen om den inte finns
-    output_dir.mkdir(exist_ok=True)
+    print("Självtest av kryptoimplementationen: OK")
+    print(f"Läser wallet-fil: {wallet_path}")
+    print("Försöker dekryptera med lösenordet från password.txt ...")
 
-    # Hämta alla filer i case-mappen (inte kataloger)
-    wallet_files = [f for f in case_dir.iterdir() if f.is_file()]
+    try:
+        decrypted_text = decrypt_wallet_file(raw_content, password)
+    except Exception as e:
+        sys.exit(f"Dekryptering misslyckades: {e}")
 
-    if not wallet_files:
-        print(f"\u001b[33m No files found in '{CASE_DIR_NAME}'.")
-        return
-    
-    print(f"Found {len(wallet_files)} file(s) in '{CASE_DIR_NAME}'.")
-    print("-" * 60)
+    try:
+        data = json.loads(decrypted_text)
+        output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except json.JSONDecodeError:
+        output_path.write_text(decrypted_text, encoding="utf-8")
+        data = None
 
-    success_count = 0
-    error_count = 0
+    print(f"\n✅ Klart! Dekrypterat innehåll sparat till:\n   {output_path}\n")
 
-    for wallet_path in wallet_files:
-        original_name = wallet_path.stem  # filnamn utan suffix
-        output_base = output_dir / f"{original_name}{OUTPUT_SUFFIX}"
+    if data is not None:
+        print("Kort sammanfattning:")
+        print(f"  wallet_type:  {data.get('wallet_type', 'okänd')}")
+        print(f"  seed_version: {data.get('seed_version', 'okänd')}")
 
-        # Generera unikt filnamn om det redan finns
-        output_path = output_base
-        counter = 1
-        while output_path.exists():
-            output_path = output_dir / f"{original_name}{counter}{OUTPUT_SUFFIX}"
-            counter += 1
+        # Samla ihop alla keystores. Vanliga plånböcker har ett fält "keystore",
+        # multisig-plånböcker har flera under "x1/", "x2/", "x3/" osv.
+        keystores = []
+        if "keystore" in data:
+            keystores.append(("keystore", data["keystore"]))
+        for k, v in data.items():
+            if k.startswith("x") and k.endswith("/") and isinstance(v, dict):
+                keystores.append((k, v))
 
-        try:
-            raw_content = wallet_path.read_text(encoding="utf-8").strip()
+        if not keystores:
+            print("  Ingen keystore hittades i filen (kan vara en watching-only-plånbok).")
 
-            decrypted_text = None
-            used_password = None
-
-            for pwd in passwords:
-                try:
-                    decrypted_text = decrypt_wallet_file(raw_content, pwd)
-                    used_password = pwd
-                    break  # <-- STOPP när rätt lösenord hittas
-                except Exception:
-                    continue
-
-            if decrypted_text is None:
-                print(f"\u001b[31m{wallet_path.name}: failed no valid password found")
-                error_count += 1
+        file_needs_rewrite = False
+        for name, ks in keystores:
+            raw_seed = ks.get("seed")
+            if not raw_seed:
+                print(f"  {name}: ingen seed-fras (t.ex. importerade nycklar eller hårdvaruplånbok)")
                 continue
 
-            # Försök tolka som JSON för att formatera snyggt
+            # Seed-fältet är i sig krypterat separat (pw_encode/pw_decode-lagret).
+            # Om det redan råkar vara vanlig text (sällsynt, äldre okrypterade
+            # wallets) används det direkt.
             try:
-                data = json.loads(decrypted_text)
+                seed_plain = pw_decode(raw_seed, password)
+            except Exception:
+                seed_plain = raw_seed  # var troligen redan klartext
 
-                # konvertera timestamps
-                data = convert_timestamps(data)
+            print(f"\n  Seed-fras ({name}):")
+            print(f"    {seed_plain}")
 
-                output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-            except json.JSONDecodeError:
-                output_path.write_text(decrypted_text, encoding="utf-8")
+            # Lägg till den dekrypterade seeden i data-strukturen, så den
+            # även hamnar i output-JSON-filen (utöver terminalutskriften).
+            ks["seed_decrypted"] = seed_plain
+            file_needs_rewrite = True
 
-            success_count += 1
+            raw_passphrase = ks.get("passphrase")
+            if raw_passphrase:
+                try:
+                    passphrase_plain = pw_decode(raw_passphrase, password)
+                except Exception:
+                    passphrase_plain = raw_passphrase
+                print(f"    (obs: seeden har även en extra passphrase satt: {passphrase_plain})")
+                ks["passphrase_decrypted"] = passphrase_plain
 
-        except Exception as e:
-            print(f"\u001b[31m{wallet_path.name}: failed – {e}")
-            error_count += 1
+        if file_needs_rewrite:
+            output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"\n  (Filen {output_path.name} har uppdaterats med dekrypterad(e) seed-fras(er).)")
 
-    print("\u001b[37m-" * 60)
-    print(f"\u001b[34mDone! {success_count} file(s) decrypted, \u001b[33m{error_count} failed.")
-    print(f"\u001b[34mPassword {wallet_path.name}: \u001b[32m{used_password}")
+            # Skapa dessutom en separat .txt-fil som bara innehåller seed-frasen/frasrna.
+            seed_txt_path = script_dir / f"{WALLET_FILENAME}.seed.txt"
+            lines = []
+            for name, ks in keystores:
+                seed_plain = ks.get("seed_decrypted")
+                if seed_plain:
+                    lines.append(f"{name}: {seed_plain}" if len(keystores) > 1 else seed_plain)
+                pass_plain = ks.get("passphrase_decrypted")
+                if pass_plain:
+                    lines.append(f"passphrase ({name}): {pass_plain}")
+            seed_txt_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            print(f"  Seed-frasen har även sparats separat i klartext till:\n    {seed_txt_path}")
+
+    print("\n⚠️  Filen ovan innehåller känslig information i klartext.")
+    print("    Radera den (och password.txt) säkert när du kopierat det du behöver.")
+
 
 if __name__ == "__main__":
     main()
