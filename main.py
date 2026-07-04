@@ -4,6 +4,7 @@ import hmac
 import json
 import sys
 import zlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 WALLET_FILENAME = "default_wallet"
@@ -324,6 +325,40 @@ def decrypt_wallet_file(raw_file_content: str, password: str) -> str:
 
 
 # =====================================================================
+# Hjälpfunktion: gör om unix-timestamp (sekunder) till läsbar text.
+# =====================================================================
+def _format_timestamp(value):
+    try:
+        ts = int(value)
+    except (TypeError, ValueError):
+        return None
+    try:
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+# =====================================================================
+# Hjälpfunktion: gå igenom hela JSON-strukturen (rekursivt) och lägg till
+# en läsbar variant bredvid varje nyckel som slutar på "_timestamp",
+# oavsett hur djupt ner i strukturen den ligger (t.ex. inuti en keystore).
+# =====================================================================
+def _add_readable_timestamps(obj):
+    if isinstance(obj, dict):
+        for key in list(obj.keys()):
+            if key.endswith("_timestamp") and not key.endswith("_readable"):
+                readable = _format_timestamp(obj[key])
+                if readable is not None:
+                    obj[f"{key}_readable"] = readable
+        for value in obj.values():
+            _add_readable_timestamps(value)
+    elif isinstance(obj, list):
+        for item in obj:
+            _add_readable_timestamps(item)
+
+
+# =====================================================================
 # Hjälpfunktion: undvik att skriva över befintliga filer i output-mappen.
 # Om "namn.ext" redan finns provas "namn (1).ext", "namn (2).ext" osv.
 # =====================================================================
@@ -387,6 +422,12 @@ def main():
 
     try:
         data = json.loads(decrypted_text)
+
+        # Gör om eventuella unix-timestamps till läsbara datum.
+        # Nyckeln heter t.ex. "creation_timestamp" i Electrum-filer, men den
+        # kan ligga nästlad (t.ex. inuti en keystore), så vi söker rekursivt.
+        _add_readable_timestamps(data)
+
         output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     except json.JSONDecodeError:
         output_path.write_text(decrypted_text, encoding="utf-8")
