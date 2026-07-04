@@ -414,16 +414,36 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = _unique_path(output_dir, f"{wallet_stem}{OUTPUT_SUFFIX}")
 
-    password = password_path.read_text(encoding="utf-8").rstrip("\n").rstrip("\r")
-    if not password:
-        sys.exit(f"'{PASSWORD_FILENAME}' verkar vara tom.")
+    # Läs alla lösenord (en per rad)
+    passwords = [
+        line.strip()
+        for line in password_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not passwords:
+        sys.exit(f"'{PASSWORD_FILENAME}' är tom eller innehåller bara blankrader.")
 
     raw_content = wallet_path.read_text(encoding="utf-8").strip()
 
-    try:
-        decrypted_text = decrypt_wallet_file(raw_content, password)
-    except Exception as e:
-        sys.exit(f"\u001b[31mDekryptering misslyckades: {e}")
+    # Prova varje lösenord tills ett fungerar
+    found_password = None
+    decrypted_text = None
+    for candidate in passwords:
+        try:
+            decrypted_text = decrypt_wallet_file(raw_content, candidate)
+            found_password = candidate
+            break
+        except ValueError:
+            # Antag att ValueError beror på fel lösenord (MAC, padding, zlib etc.)
+            continue
+        except Exception as e:
+            sys.exit(f"\u001b[33mEtt oväntat fel uppstod vid test av lösenordet '{candidate}': {e}")
+
+    if found_password is None:
+        sys.exit("\u001b[31mInget av lösenorden i passwords.txt fungerade.")
+
+    # Använd det funna lösenordet för vidare bearbetning
+    password = found_password
 
     try:
         data = json.loads(decrypted_text)
@@ -436,7 +456,7 @@ def main():
         data = None
 
     if data is not None:
-        print(f"\u001b[33mwallet_type:  {data.get('wallet_type', 'okänd')}")
+        print(f"\n\u001b[33mwallet_type:  {data.get('wallet_type', 'okänd')}")
         print(f"\u001b[33mseed_version: {data.get('seed_version', 'okänd')}")
 
         # Samla ihop alla keystores. Vanliga plånböcker har ett fält "keystore",
@@ -466,8 +486,8 @@ def main():
             except Exception:
                 seed_plain = raw_seed  # var troligen redan klartext
 
-            print(f"\n\u001b[32m{seed_plain}")
-            print(f"\n\u001b[34mPassword: \u001b[32m{password}")
+            print(f"\n\u001b[34mPassword: \u001b[32m{password}\n")
+            print(f"\u001b[34mMnemonic: \u001b[32m{seed_plain}\n")
 
             # Lägg till den dekrypterade seeden i data-strukturen, så den
             # även hamnar i output-JSON-filen (utöver terminalutskriften).
