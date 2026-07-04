@@ -43,7 +43,7 @@ import zlib
 from pathlib import Path
 
 WALLET_FILENAME = "default_wallet"
-PASSWORD_FILENAME = "password.txt"
+PASSWORD_FILENAME = "passwords.txt"
 OUTPUT_SUFFIX = ".decrypted.json"
 
 # =====================================================================
