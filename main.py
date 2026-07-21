@@ -437,7 +437,7 @@ def main():
             print(f"\u001b[32m[{idx}/{total}] '{candidate}' -> lyckades!")
             break
         except ValueError as e:
-            print(f"\u001b[31m[{idx}/{total}] '{candidate}' -> fel ({e})")
+            print(f"\u001b[33m[{idx}/{total}] '{candidate}'")
             continue
         except Exception as e:
             sys.exit(f"\u001b[33mEtt oväntat fel uppstod vid test av lösenordet '{candidate}': {e}")
