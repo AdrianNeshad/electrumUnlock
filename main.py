@@ -425,16 +425,19 @@ def main():
 
     raw_content = wallet_path.read_text(encoding="utf-8").strip()
 
-    # Prova varje lösenord tills ett fungerar
+    # Prova varje lösenord tills ett fungerar, och logga varje försök
     found_password = None
     decrypted_text = None
-    for candidate in passwords:
+    total = len(passwords)
+    print(f"\u001b[36mTestar {total} lösenord från '{PASSWORD_FILENAME}'...\n")
+    for idx, candidate in enumerate(passwords, start=1):
         try:
             decrypted_text = decrypt_wallet_file(raw_content, candidate)
             found_password = candidate
+            print(f"\u001b[32m[{idx}/{total}] '{candidate}' -> lyckades!")
             break
-        except ValueError:
-            # Antag att ValueError beror på fel lösenord (MAC, padding, zlib etc.)
+        except ValueError as e:
+            print(f"\u001b[31m[{idx}/{total}] '{candidate}' -> fel ({e})")
             continue
         except Exception as e:
             sys.exit(f"\u001b[33mEtt oväntat fel uppstod vid test av lösenordet '{candidate}': {e}")
